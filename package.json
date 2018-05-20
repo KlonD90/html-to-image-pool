@@ -1,0 +1,29 @@
+{
+  "name": "html-to-image-pool",
+  "version": "1.0.0",
+  "description": "Pooling over puppeteer for generate image.",
+  "main": "index.js",
+  "scripts": {
+    "test": "test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/KlonD90/html-to-image-pool.git"
+  },
+  "keywords": [
+    "puppeteer",
+    "image"
+  ],
+  "author": "KlonD90",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/KlonD90/html-to-image-pool/issues"
+  },
+  "homepage": "https://github.com/KlonD90/html-to-image-pool#readme",
+  "dependencies": {
+    "puppeteer": "^1.4.0"
+  },
+  "devDependencies": {
+    "mocha": "^5.2.0"
+  }
+}
