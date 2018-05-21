@@ -16,6 +16,8 @@ class ImageGenerationPool{
                 status: 'free',
                 inited: false,
                 task: null,
+                initPromise: null,
+                page: null
             });
         }
         this.browser = null;
@@ -23,9 +25,16 @@ class ImageGenerationPool{
     }
 
     async init(){
-        const browser = await puppeteer.launch();
-        this.browser = browser;
-        this.process();
+        this.initPromise = new Promise((resolve, reject) => {
+            puppeteer.launch()
+                .then(browser => {
+                    this.browser = browser;
+                    resolve();
+                })
+                .catch(reject);
+        });
+        return this.initPromise;
+
     }
 
     getFreeNodes(){
@@ -36,14 +45,29 @@ class ImageGenerationPool{
         return this.tasks.filter(x => x.status === 'wait');
     }
 
-    async initNode(node){
-        this.browser
+    initNode(node){
+        node.initPromise = new Promise(async (resolve, reject) => {
+            try {
+                node.page = await this.browser.newPage();
+                node.inited = true;
+            } catch(e) {
+                reject(e);
+            }
+        }) ;
+        return node.initPromise;
     }
 
     async process(){
         if (this.browser != null)
         {
-
+            if (this.initPromise)
+            {
+                await this.initPromise;
+            }
+            else
+            {
+                await this.initNode();
+            }
         }
         const freeNodes = this.getFreeNodes();
         const waitTasks = this.getWaitTasks();
@@ -54,7 +78,14 @@ class ImageGenerationPool{
             let curNode = freeNodes[i];
             if (!curNode.inited)
             {
-                await this.initNode(curNode);
+                if (curNode.initPromise)
+                {
+                    await curNode.initPromise;
+                }
+                else
+                {
+                    await this.initNode(curNode);
+                }
             }
             let curTask = waitTasks[i];
             curNode.status = 'pending';
@@ -62,19 +93,49 @@ class ImageGenerationPool{
             curTask.status = 'pending';
             workingNodes.push(curNode);
         }
-        workingNodes.map(
-            node => {
+        if (workingNodes.length) {
 
+            await Promise.all(workingNodes.map(
+                async node => {
+                    await this.processTask(node);
+                }
+            ));
+
+            if (this.tasks.length) {
+                this.process();
             }
-        )
-    }
-
-    async processTask(task){
-        if (!curNode.inited)
-        {
-
         }
     }
 
-    generateFromHtml
+    async processTask(node){
+        const task = node.task;
+        try {
+            await node.page.setContent(task.html);
+            const buffer = await node.page.screenshot(task.screenshotOptions);
+            task.resolve(buffer);
+        } catch(e){
+            task.reject(e);
+        }
+        this.tasks = this.tasks.filter(x => x !== task);
+        node.task = null;
+        node.status = 'free';
+        return buffer;
+    }
+
+    generateFromHtml(options){
+        assert.ok(options.html, 'should be html');
+        assert.ok(typeof options.html === 'string', 'html should be a string');
+        const {html, ...screenshotOptions} = options;
+        return new Promise((resolve, reject) => {
+
+            this.tasks.push({
+                html,
+                screenshotOptions,
+                resolve,
+                reject,
+                status: 'wait',
+            });
+            this.process();
+        });
+    }
 }
