@@ -24,7 +24,7 @@ class ImageGenerationPool{
         this.initPromise = null;
     }
 
-    async init(){
+    init(){
         this.initPromise = new Promise((resolve, reject) => {
             puppeteer.launch()
                 .then(browser => {
@@ -34,7 +34,6 @@ class ImageGenerationPool{
                 .catch(reject);
         });
         return this.initPromise;
-
     }
 
     getFreeNodes(){
@@ -50,6 +49,7 @@ class ImageGenerationPool{
             try {
                 node.page = await this.browser.newPage();
                 node.inited = true;
+                resolve();
             } catch(e) {
                 reject(e);
             }
@@ -58,7 +58,7 @@ class ImageGenerationPool{
     }
 
     async process(){
-        if (this.browser != null)
+        if (this.browser === null)
         {
             if (this.initPromise)
             {
@@ -66,7 +66,7 @@ class ImageGenerationPool{
             }
             else
             {
-                await this.initNode();
+                await this.init();
             }
         }
         const freeNodes = this.getFreeNodes();
@@ -88,30 +88,35 @@ class ImageGenerationPool{
                 }
             }
             let curTask = waitTasks[i];
+            console.log('curTask', curTask);
             curNode.status = 'pending';
             curNode.task = curTask;
             curTask.status = 'pending';
             workingNodes.push(curNode);
         }
+        console.log('workingNodes', workingNodes.length);
         if (workingNodes.length) {
 
             await Promise.all(workingNodes.map(
                 async node => {
                     await this.processTask(node);
+                    if (this.getWaitTasks().length) {
+                        this.process();
+                    }
                 }
             ));
-
-            if (this.tasks.length) {
-                this.process();
-            }
         }
     }
 
     async processTask(node){
         const task = node.task;
+        console.log('task', task);
         try {
             await node.page.setContent(task.html);
             const buffer = await node.page.screenshot(task.screenshotOptions);
+            const content = await node.page.content();
+            console.log('content', content);
+            console.log(buffer, task);
             task.resolve(buffer);
         } catch(e){
             task.reject(e);
@@ -119,7 +124,6 @@ class ImageGenerationPool{
         this.tasks = this.tasks.filter(x => x !== task);
         node.task = null;
         node.status = 'free';
-        return buffer;
     }
 
     generateFromHtml(options){
@@ -127,7 +131,6 @@ class ImageGenerationPool{
         assert.ok(typeof options.html === 'string', 'html should be a string');
         const {html, ...screenshotOptions} = options;
         return new Promise((resolve, reject) => {
-
             this.tasks.push({
                 html,
                 screenshotOptions,
@@ -139,3 +142,5 @@ class ImageGenerationPool{
         });
     }
 }
+
+module.exports = ImageGenerationPool;
