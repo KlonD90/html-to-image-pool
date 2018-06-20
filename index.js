@@ -20,110 +20,82 @@ class ImageGenerationPool{
                 page: null
             });
         }
-        this.browser = null;
-        this.initPromise = null;
     }
 
-    init(){
-        this.initPromise = new Promise((resolve, reject) => {
-            puppeteer.launch()
-                .then(browser => {
-                    this.browser = browser;
-                    resolve();
-                })
-                .catch(reject);
-        });
-        return this.initPromise;
+    async createBrowser () {
+        let browser;
+        try {
+            browser = await puppeteer.launch()
+            return browser
+        } catch(e) {
+            console.error(e)
+        }
     }
 
-    getFreeNodes(){
+    get freeNodes() {
         return this.pool.filter(x => x.status === 'free');
     }
 
-    getWaitTasks(){
+    get waitTasks() {
         return this.tasks.filter(x => x.status === 'wait');
     }
 
     initNode(node){
         node.initPromise = new Promise(async (resolve, reject) => {
             try {
-                node.page = await this.browser.newPage();
+                const browser = await this.createBrowser();
+                node.page = await browser.newPage();
+                await node.page.setViewport({width: 810, height: 250})
                 node.inited = true;
                 resolve();
             } catch(e) {
                 reject(e);
             }
-        }) ;
+        });
         return node.initPromise;
     }
 
-    async process(){
-        if (this.browser === null)
-        {
-            if (this.initPromise)
-            {
-                await this.initPromise;
-            }
-            else
-            {
-                await this.init();
-            }
-        }
-        const freeNodes = this.getFreeNodes();
-        const waitTasks = this.getWaitTasks();
-        let workingNodes = [];
+    async checkNodeInit (curNode) {
+        if (curNode.inited) return
+        curNode.initPromise
+            ? await curNode.initPromise
+            : await this.initNode(curNode);
+    }
 
-        for (let i=0; i<freeNodes.length && i<waitTasks.length; i++)
-        {
-            let curNode = freeNodes[i];
-            if (!curNode.inited)
-            {
-                if (curNode.initPromise)
-                {
-                    await curNode.initPromise;
-                }
-                else
-                {
-                    await this.initNode(curNode);
-                }
-            }
-            let curTask = waitTasks[i];
-            console.log('curTask', curTask);
-            curNode.status = 'pending';
-            curNode.task = curTask;
-            curTask.status = 'pending';
-            workingNodes.push(curNode);
-        }
-        console.log('workingNodes', workingNodes.length);
-        if (workingNodes.length) {
+    async assignTaskToNode(task) {
+        let curNode = this.freeNodes[0];
+        let curTask = task;
+        curNode.status = 'pending';
+        curNode.task = task;
+        curTask.status = 'pending';
+        this.tasks = this.tasks.filter(x => x !== task);
+        await this.processTask(curNode);
+        curNode.task = null;
+        curNode.status = 'free';
+    }
 
-            await Promise.all(workingNodes.map(
-                async node => {
-                    await this.processTask(node);
-                    if (this.getWaitTasks().length) {
-                        this.process();
-                    }
-                }
-            ));
+    async process() {
+        if (!this.waitTasks.length) return;
+        if (this.freeNodes.length) {
+            await this.assignTaskToNode(this.waitTasks[0]);
+            this.process();
         }
     }
 
-    async processTask(node){
+    async processTask(node) {
+        await this.checkNodeInit(node);
+        if (node.page === null) return;
+
         const task = node.task;
-        console.log('task', task);
         try {
             await node.page.setContent(task.html);
             const buffer = await node.page.screenshot(task.screenshotOptions);
-            const content = await node.page.content();
-            console.log('content', content);
-            console.log(buffer, task);
+            // const content = await node.page.content();
+            // console.log('Content:', content)
             task.resolve(buffer);
         } catch(e){
             task.reject(e);
         }
-        this.tasks = this.tasks.filter(x => x !== task);
-        node.task = null;
-        node.status = 'free';
     }
 
     generateFromHtml(options){
